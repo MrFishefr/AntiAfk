@@ -54,7 +54,7 @@ local toggleBtn = Instance.new("TextButton")
 toggleBtn.Size = UDim2.new(1, 0, 0, 30)
 toggleBtn.Position = UDim2.new(0, 0, 0.2, 0.5) -- Y Scale position relative to frame height
 toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-toggleBtn.Text = "Enable Auto Jump"
+toggleBtn.Text = "Включить Прыжки"
 toggleBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
 toggleBtn.Font = Enum.Font.SourceSans
 toggleBtn.TextSize = 16
@@ -118,7 +118,7 @@ timeLabelCorner.Parent = timeLabel
 -- Toggle Auto Jump Function
 local function toggleAutoJump()
 	autoJumpEnabled = not autoJumpEnabled
-	toggleBtn.Text = autoJumpEnabled and "Disable Auto Jump" or "Enable Auto Jump"
+	toggleBtn.Text = autoJumpEnabled and "Выключить Прыжки" or "Включить Прыжки"
 	statusLabel.Text = autoJumpEnabled and "Статус: Работает" or "Статус: Не Работает"
 
 	if autoJumpEnabled then

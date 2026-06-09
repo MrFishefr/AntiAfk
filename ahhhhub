@@ -1,164 +1,174 @@
--- Services
-local Players = game:GetService("Players")
-local userInputService = game:GetService("UserInputService")
-local player = Players.LocalPlayer
+local player = game.Players.LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ItemData = require(ReplicatedStorage:WaitForChild("ItemData"))
+local PetData = require(ReplicatedStorage:WaitForChild("PetData"))
 
--- Variables
-local autoJumpEnabled = false
-local jumpInterval = 0.07 -- Set the interval to 0.07 seconds
+local invGui = script.Parent
+local inner = invGui:WaitForChild("Inner")
+local info = invGui:WaitForChild("Info")
+local feedMenu = invGui:FindFirstChild("FeedMenu", true)
+local scrollingFrame = inner:FindFirstChild("InvScrollFrame", true)
+local openBtn = player.PlayerGui:WaitForChild("MainGui"):FindFirstChild("Inventory", true)
 
--- Create GUI
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "AutoJumpGui"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = player:WaitForChild("PlayerGui")
+local currentFilter, selectedFood, currentFeedingPetID = "Pets", {}, nil
 
--- Frame for GUI
-local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 250, 0, 210) -- Increased height to accommodate new time label
-frame.Position = UDim2.new(0.85, 0, 0.1, 0)
-frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-frame.Draggable = true
-frame.Active = true
-frame.Parent = screenGui
+local function toggleInventory(state)
+	for _, v in ipairs({invGui.Outter, invGui.Header, inner, invGui.ImageButton}) do v.Visible = state end
+	if not state then info.Enabled = false if feedMenu then feedMenu.Visible = false end end
+end
 
--- Frame corners --
-local frameCorner = Instance.new("UICorner")
-frameCorner.CornerRadius = UDim.new(0, 8)
-frameCorner.Parent = frame
+local function getPet(petID)
+	for _, f in ipairs({player:FindFirstChild("EquippedPets"), player:FindFirstChild("Pets")}) do
+		if f then for _, c in ipairs(f:GetChildren()) do 
+				if c:GetAttribute("ID") == petID or c.Name == petID then return c end 
+			end end
+	end
+end
 
--- Frame outline --
-local frameOutline = Instance.new("UIStroke")
-frameOutline.Color = Color3.fromRGB(255, 255, 255) -- White outline
-frameOutline.Thickness = 3
-frameOutline.Parent = frame
+local function updateFeedUI(petID)
+	local pet = getPet(petID)
+	if not pet or not feedMenu then return end
+	local header = feedMenu:FindFirstChild("PetHeader", true)
+	if header then
+		local lvl, xp = pet:GetAttribute("Level") or 1, pet:GetAttribute("XP") or 0
+		local pData = PetData[pet.Name]
+		local maxXP = pData and (pData.XPRequirement * lvl) or 100
+		header:FindFirstChild("NameLabel", true).Text = pet.Name .. " [Lvl " .. lvl .. "]"
+		local bar = header:FindFirstChild("XPBar", true)
+		bar.Fill.Size = UDim2.new(math.clamp(xp/maxXP, 0, 1), 0, 1, 0)
+		bar:FindFirstChildOfClass("TextLabel").Text = xp .. " / " .. maxXP
+		local vp = header:FindFirstChild("ViewportFrame", true)
+		vp:ClearAllChildren()
+		local model = ReplicatedStorage.Assets.PetModels:FindFirstChild(pet.Name)
+		if model then
+			local cl = model:Clone() cl.Parent = vp
+			local cam = Instance.new("Camera", vp)
+			local hrp = cl.PrimaryPart or cl:FindFirstChild("HumanoidRootPart")
+			cam.CFrame = CFrame.new(hrp.Position + hrp.CFrame.LookVector * 4 + Vector3.new(0,1,0), hrp.Position)
+			vp.CurrentCamera = cam
+		end
+	end
+end
 
+local function showFoodSelection(petID)
+	currentFeedingPetID, selectedFood = petID, {}
+	local scroll = feedMenu:FindFirstChildOfClass("ScrollingFrame")
+	for _, c in ipairs(scroll:GetChildren()) do if c:IsA("GuiButton") then c:Destroy() end end
+	for _, item in ipairs(player.Inventory:GetChildren()) do
+		local data = ItemData[item.Name]
+		if data and data.Type == "Food" then
+			local slot = Instance.new("ImageButton")
+			slot.Size, slot.BackgroundColor3, slot.Parent = UDim2.new(0,80,0,80), Color3.fromRGB(55,55,55), scroll
+			Instance.new("UICorner", slot)
+			local txt = Instance.new("TextLabel", slot)
+			txt.Size, txt.BackgroundTransparency, txt.Text = UDim2.new(1,0,1,0), 1, item.Name.."\n+"..(data.XPValue or 0).."XP"
+			txt.TextScaled, txt.TextColor3 = true, Color3.new(1,1,1)
+			slot.MouseButton1Click:Connect(function()
+				
+				local id = item:GetAttribute("ID") or item.Name
+				local f = table.find(selectedFood, id)
+				if f then table.remove(selectedFood, f) slot.BackgroundColor3 = Color3.fromRGB(55,55,55)
+				else table.insert(selectedFood, id) slot.BackgroundColor3 = Color3.fromRGB(100,100,50) end
+			end)
+		end
+	end
+	updateFeedUI(petID)
+end
 
--- Title Label
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 30)
-title.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-title.Text = "Анти АФК"
-title.TextColor3 = Color3.fromRGB(255, 255, 255)
-title.Font = Enum.Font.SourceSansBold
-title.TextSize = 14
-title.Parent = frame
-
--- Title Label corners --
-local titleCorner = Instance.new("UICorner")
-titleCorner.CornerRadius = UDim.new(0, 8)
-titleCorner.Parent = title
-
--- Toggle Button
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Size = UDim2.new(1, 0, 0, 30)
-toggleBtn.Position = UDim2.new(0, 0, 0.2, 0.5) -- Y Scale position relative to frame height
-toggleBtn.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-toggleBtn.Text = "Включить Прыжки"
-toggleBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
-toggleBtn.Font = Enum.Font.SourceSans
-toggleBtn.TextSize = 16
-toggleBtn.Parent = frame
-
--- Toggle Button corners --
-local toggleBtnCorner = Instance.new("UICorner")
-toggleBtnCorner.CornerRadius = UDim.new(0, 0)
-toggleBtnCorner.Parent = toggleBtn
-
--- Interval Label
-local intervalLabel = Instance.new("TextLabel")
-intervalLabel.Size = UDim2.new(1, 0, 0, 30)
-intervalLabel.Position = UDim2.new(0, 0, 0.4, 0) -- Y Scale position relative to frame height
-intervalLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-intervalLabel.Text = "By Zoom_N1 "
-intervalLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-intervalLabel.Font = Enum.Font.SourceSans
-intervalLabel.TextSize = 14
-intervalLabel.Parent = frame
-
--- Interval Label corners --
-local intervalLabelCorner = Instance.new("UICorner")
-intervalLabelCorner.CornerRadius = UDim.new(0, 0)
-intervalLabelCorner.Parent = intervalLabel
-
--- New Status Label
-local statusLabel = Instance.new("TextLabel")
-statusLabel.Name = "StatusLabel"
-statusLabel.Size = UDim2.new(1, 0, 0, 30)
-statusLabel.Position = UDim2.new(0, 0, 0.6, 0) -- Y Scale position relative to frame height
-statusLabel.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-statusLabel.Text = "Статус: Не работает"
-statusLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
-statusLabel.Font = Enum.Font.SourceSans
-statusLabel.TextSize = 14
-statusLabel.Parent = frame
-
--- New Status Label corners --
-local statusLabelCorner = Instance.new("UICorner")
-statusLabelCorner.CornerRadius = UDim.new(0, 0)
-statusLabelCorner.Parent = statusLabel
-
--- Time Label
-local timeLabel = Instance.new("TextLabel")
-timeLabel.Name = "TimeLabel"
-timeLabel.Size = UDim2.new(1, 0, 0, 30)
-timeLabel.Position = UDim2.new(0, 0, 0.8, 0) -- Positioned below StatusLabel
-timeLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-timeLabel.Text = "Moscow: --:--:--"
-timeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-timeLabel.Font = Enum.Font.SourceSans
-timeLabel.TextSize = 14
-timeLabel.Parent = frame
-
--- Time Label corners --
-local timeLabelCorner = Instance.new("UICorner")
-timeLabelCorner.CornerRadius = UDim.new(0, 0)
-timeLabelCorner.Parent = timeLabel
-
--- Toggle Auto Jump Function
-local function toggleAutoJump()
-	autoJumpEnabled = not autoJumpEnabled
-	toggleBtn.Text = autoJumpEnabled and "Выключить Прыжки" or "Включить Прыжки"
-	statusLabel.Text = autoJumpEnabled and "Статус: Работает" or "Статус: Не Работает"
-
-	if autoJumpEnabled then
-		while autoJumpEnabled do
-			-- Wait for the specified interval and jump
-			if player.Character and player.Character:FindFirstChild("Humanoid") then
-				local humanoid = player.Character.Humanoid
-				humanoid.Jump = true -- Trigger the jump
+local function updateInventory()
+	scrollingFrame.ClipsDescendants = false
+	for _, c in ipairs(scrollingFrame:GetChildren()) do if c:IsA("GuiObject") then c:Destroy() end end
+	local function process(folder, isEq)
+		if not folder then return end
+		for _, item in ipairs(folder:GetChildren()) do
+			local data = PetData[item.Name] or ItemData[item.Name]
+			if currentFilter == "All" or (data and data.Type == currentFilter) then
+				local slot = Instance.new("ImageButton")
+				slot.Size, slot.LayoutOrder, slot.Parent = UDim2.new(0,100,0,100), (isEq and 1 or 100), scrollingFrame
+				slot.BackgroundColor3 = data.RarityColor or Color3.fromRGB(45,45,45)
+				Instance.new("UICorner", slot)
+				local str = Instance.new("UIStroke", slot)
+				str.Thickness, str.ApplyStrokeMode = 3, "Border"
+				local h,s,v = slot.BackgroundColor3:ToHSV() str.Color = Color3.fromHSV(h,s,v-0.2)
+				if isEq then
+					local ch = Instance.new("ImageLabel", slot)
+					ch.Size, ch.Position, ch.Image = UDim2.new(0,25,0,25), UDim2.new(1,-22,0,-3), "rbxassetid://6031068433"
+					ch.BackgroundTransparency, ch.ImageColor3 = 1, Color3.new(0,1,0)
+				end
+				if data.Type == "Pets" then
+					local m = ReplicatedStorage.Assets.PetModels:FindFirstChild(item.Name)
+					if m then
+						local vp = Instance.new("ViewportFrame", slot)
+						vp.Size, vp.BackgroundTransparency = UDim2.new(0.9,0,0.8,0), 1
+						local cl = m:Clone() cl.Parent = vp
+						local head = cl:FindFirstChild("Head") or cl.PrimaryPart
+						local cam = Instance.new("Camera", vp)
+						cam.CFrame = CFrame.new(head.Position + head.CFrame.LookVector*2.2 + Vector3.new(0,0.4,0), head.Position+Vector3.new(0,0.4,0))
+						vp.CurrentCamera = cam
+					end
+				elseif data.ImageID then
+					local img = Instance.new("ImageLabel", slot)
+					img.Size, img.Position, img.Image = UDim2.new(0,70,0,70), UDim2.new(0.15,0,0.1,0), "rbxassetid://"..data.ImageID
+					img.BackgroundTransparency = 1
+				end
+				local nl = Instance.new("TextLabel", slot)
+				nl.Size, nl.Position, nl.Text = UDim2.new(1,0,0.25,0), UDim2.new(0,0,0.7,0), item.Name
+				nl.TextScaled, nl.Font, nl.BackgroundTransparency = true, "GothamBold", 1
+				Instance.new("UIStroke", nl).Thickness = 2
+				slot.MouseButton1Click:Connect(function()
+					info.Enabled = true
+					local inI = info:FindFirstChild("Inner", true)
+					local ds = inI:FindFirstChild("DescText", true)
+					if ds then 
+						ds.Text = (data and data.Description) or "No Description" 
+					end
+					local lvl = item:GetAttribute("Level") or 1
+					inI.NameText.Text = item.Name .. " [Lvl " .. lvl .. "]"
+					local rl = inI:FindFirstChild("RarityText")
+					if rl then rl.Text, rl.TextColor3 = data.Rarity or "Common", data.RarityColor or Color3.new(1,1,1) end
+					local b = {}
+					if data.DamageMul then table.insert(b, "x"..data.DamageMul.." Dmg") end
+					if data.EnergyMul then table.insert(b, "x"..data.EnergyMul.." En") end
+					local feed = info:FindFirstChild("Feed", true)
+					if feed then
+						feed.Visible = (data.Type == "Pets")
+						if _G.F then _G.F:Disconnect() end
+						_G.F = feed.MouseButton1Click:Connect(function()
+							feedMenu.Visible = not feedMenu.Visible
+							if feedMenu.Visible then
+								currentFeedingPetID = item:GetAttribute("ID") or item.Name
+								showFoodSelection(currentFeedingPetID) 
+							end
+						end)
+					end
+					if _G.AttrConn then _G.AttrConn:Disconnect() end
+					_G.AttrConn = item:GetAttributeChangedSignal("Level"):Connect(function()
+						local newLvl = item:GetAttribute("Level") or 1
+						if inI:FindFirstChild("NameText") then
+							inI.NameText.Text = item.Name .. " [Lvl " .. newLvl .. "]"
+						end
+					end)
+					local eq = info:FindFirstChild("Equip", true)
+					local bt = eq:FindFirstChildOfClass("TextLabel")
+					bt.Text = isEq and "UNEQUIP" or "EQUIP"
+					if _G.E then _G.E:Disconnect() end
+					_G.E = eq.MouseButton1Click:Connect(function() ReplicatedStorage.Remotes.EquipItem:FireServer(item:GetAttribute("ID") or item.Name) end)
+				end)
 			end
-			wait(jumpInterval) -- Wait for the next interval before jumping again
 		end
 	end
+	process(player:FindFirstChild("Inventory"), false) process(player:FindFirstChild("Equipped"), true)
+	process(player:FindFirstChild("Pets"), false) process(player:FindFirstChild("EquippedPets"), true)
 end
 
--- Toggle Button Click Event
-toggleBtn.MouseButton1Click:Connect(toggleAutoJump)
-
--- Function to update Moscow Time
-local function updateMoscowTime()
-	local moscowTimeOffset = 3 * 60 * 60 -- UTC+3 in seconds
-	local currentTime = os.time()
-	local moscowTimestamp = currentTime + moscowTimeOffset
-	
-	-- os.date with "!*t" returns a table in UTC based on the provided timestamp
-	local timeData = os.date("!*t", moscowTimestamp) 
-	
-	timeLabel.Text = string.format("Время: %02d:%02d:%02d", timeData.hour, timeData.min, timeData.sec)
+openBtn.MouseButton1Click:Connect(function() local v = not invGui.Outter.Visible if v then currentFilter = "Pets" updateInventory() end toggleInventory(v) end)
+invGui.ImageButton.MouseButton1Click:Connect(function() toggleInventory(false) end)
+local fMap = {Filter1 = "Pets", Filter2 = "Armor", Filter3 = "Sword"}
+for _, b in ipairs(inner:WaitForChild("Filters"):GetChildren()) do if b:IsA("GuiObject") then b.MouseButton1Click:Connect(function() currentFilter = fMap[b.Name] or "All" updateInventory() end) end end
+if feedMenu then
+	feedMenu:FindFirstChild("Confirm", true).MouseButton1Click:Connect(function() if #selectedFood > 0 then ReplicatedStorage.Remotes.FeedPet:FireServer(currentFeedingPetID, selectedFood) selectedFood = {} feedMenu.Visible = false end end)
+	feedMenu:FindFirstChild("Cancel", true).MouseButton1Click:Connect(function() feedMenu.Visible = false end)
+	feedMenu:FindFirstChild("All", true).MouseButton1Click:Connect(function() selectedFood = {} for _, i in ipairs(player.Inventory:GetChildren()) do if ItemData[i.Name] and ItemData[i.Name].Type == "Food" then table.insert(selectedFood, i:GetAttribute("ID") or i.Name) end end if currentFeedingPetID then showFoodSelection(currentFeedingPetID) end end)
 end
-
--- Initial call to set the time immediately
-updateMoscowTime()
-
--- Update time every second
-task.spawn(function()
-	while task.wait(1) do
-		if screenGui.Parent ~= nil and timeLabel.Parent ~= nil then -- Check if GUI is still part of the game
-			updateMoscowTime()
-		else
-			break -- Stop the loop if the GUI is removed
-		end
-	end
-end)
-
+for _, f in ipairs({player:WaitForChild("Inventory"), player:WaitForChild("Equipped"), player:WaitForChild("Pets"), player:WaitForChild("EquippedPets")}) do f.ChildAdded:Connect(updateInventory) f.ChildRemoved:Connect(updateInventory) end
+toggleInventory(false) invGui.Enabled = true
